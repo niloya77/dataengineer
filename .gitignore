@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data (never commit data files)
+data/*
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Editor / OS
+.DS_Store
