@@ -1,12 +1,19 @@
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.smard.de/app/chart_data"
 RESOLUTION = "hour"
 RAW_DIR = Path("data/raw")
+
+# The most recent chunks are still being filled in by SMARD, so they are
+# always re-downloaded. Older chunks are final and skipped if already on disk.
+REFRESH_CHUNKS = 2
 
 # Signals to ingest: name -> (SMARD filter id, region)
 SIGNALS = {
@@ -18,18 +25,26 @@ SIGNALS = {
 }
 
 
-def fetch_index(filter_id, region):
+def make_session():
+    """HTTP session that retries transient errors with backoff."""
+    retry = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
+
+
+def fetch_index(session, filter_id, region):
     """Return the list of available weekly chunk timestamps."""
     url = f"{BASE_URL}/{filter_id}/{region}/index_{RESOLUTION}.json"
-    response = requests.get(url, timeout=30)
+    response = session.get(url, timeout=30)
     response.raise_for_status()
     return response.json()["timestamps"]
 
 
-def fetch_chunk(filter_id, region, chunk_ts):
+def fetch_chunk(session, filter_id, region, chunk_ts):
     """Return the [timestamp, value] rows for one weekly chunk."""
     url = f"{BASE_URL}/{filter_id}/{region}/{filter_id}_{region}_{RESOLUTION}_{chunk_ts}.json"
-    response = requests.get(url, timeout=30)
+    response = session.get(url, timeout=30)
     response.raise_for_status()
     return response.json()["series"]
 
@@ -43,24 +58,41 @@ def to_dataframe(series, signal):
     return df[["timestamp_utc", "signal", "value", "ingested_at"]]
 
 
+def chunk_path(signal, chunk_ts):
+    return RAW_DIR / signal / f"{chunk_ts}.parquet"
+
+
 def save_parquet(df, signal, chunk_ts):
     """Write one chunk to its own file. Re-running overwrites it (idempotent)."""
-    out_dir = RAW_DIR / signal
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{chunk_ts}.parquet"
+    path = chunk_path(signal, chunk_ts)
+    path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
     return path
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Ingest SMARD hourly data into Parquet.")
+    parser.add_argument("--weeks", type=int, default=REFRESH_CHUNKS,
+                        help="number of most recent weekly chunks to cover (default: %(default)s)")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    session = make_session()
     for signal, (filter_id, region) in SIGNALS.items():
-        timestamps = fetch_index(filter_id, region)
-        # The last two chunks: the current week and the one before it
-        for chunk_ts in timestamps[-2:]:
-            series = fetch_chunk(filter_id, region, chunk_ts)
-            df = to_dataframe(series, signal)
-            path = save_parquet(df, signal, chunk_ts)
-            print(f"{signal}: saved {len(df)} rows to {path}")
+        timestamps = fetch_index(session, filter_id, region)
+        chunks = timestamps[-args.weeks:]
+        refresh = set(timestamps[-REFRESH_CHUNKS:])
+        saved = skipped = 0
+        for chunk_ts in chunks:
+            if chunk_ts not in refresh and chunk_path(signal, chunk_ts).exists():
+                skipped += 1
+                continue
+            series = fetch_chunk(session, filter_id, region, chunk_ts)
+            save_parquet(to_dataframe(series, signal), signal, chunk_ts)
+            saved += 1
+        print(f"{signal}: saved {saved} chunks, skipped {skipped} already on disk")
 
 
 if __name__ == "__main__":
