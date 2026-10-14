@@ -1,5 +1,5 @@
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -9,11 +9,13 @@ from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.smard.de/app/chart_data"
 RESOLUTION = "hour"
-RAW_DIR = Path("data/raw")
+RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw" / "smard"
 
-# The most recent chunks are still being filled in by SMARD, so they are
-# always re-downloaded. Older chunks are final and skipped if already on disk.
-REFRESH_CHUNKS = 2
+DEFAULT_WEEKS = 2
+
+# SMARD keeps filling in a week after it starts. A stored chunk counts as final
+# (and is skipped) only if it was downloaded this long after its week ended.
+FINAL_AFTER = timedelta(days=7)
 
 # Signals to ingest: name -> (SMARD filter id, region)
 SIGNALS = {
@@ -62,6 +64,14 @@ def chunk_path(signal, chunk_ts):
     return RAW_DIR / signal / f"{chunk_ts}.parquet"
 
 
+def is_final(path):
+    """True if the file exists and was downloaded well after the period it covers."""
+    if not path.exists():
+        return False
+    df = pd.read_parquet(path, columns=["timestamp_utc", "ingested_at"])
+    return df["ingested_at"].min() >= df["timestamp_utc"].max() + FINAL_AFTER
+
+
 def save_parquet(df, signal, chunk_ts):
     """Write one chunk to its own file. Re-running overwrites it (idempotent)."""
     path = chunk_path(signal, chunk_ts)
@@ -72,27 +82,33 @@ def save_parquet(df, signal, chunk_ts):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Ingest SMARD hourly data into Parquet.")
-    parser.add_argument("--weeks", type=int, default=REFRESH_CHUNKS,
+    parser.add_argument("--weeks", type=int, default=DEFAULT_WEEKS,
                         help="number of most recent weekly chunks to cover (default: %(default)s)")
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
+def ingest(weeks=DEFAULT_WEEKS):
+    """Download the last `weeks` chunks of every signal. Returns {signal: (saved, skipped)}."""
     session = make_session()
+    summary = {}
     for signal, (filter_id, region) in SIGNALS.items():
         timestamps = fetch_index(session, filter_id, region)
-        chunks = timestamps[-args.weeks:]
-        refresh = set(timestamps[-REFRESH_CHUNKS:])
         saved = skipped = 0
-        for chunk_ts in chunks:
-            if chunk_ts not in refresh and chunk_path(signal, chunk_ts).exists():
+        for chunk_ts in timestamps[-weeks:]:
+            if is_final(chunk_path(signal, chunk_ts)):
                 skipped += 1
                 continue
             series = fetch_chunk(session, filter_id, region, chunk_ts)
             save_parquet(to_dataframe(series, signal), signal, chunk_ts)
             saved += 1
-        print(f"{signal}: saved {saved} chunks, skipped {skipped} already on disk")
+        summary[signal] = (saved, skipped)
+    return summary
+
+
+def main():
+    args = parse_args()
+    for signal, (saved, skipped) in ingest(args.weeks).items():
+        print(f"{signal}: saved {saved} chunks, skipped {skipped} already final")
 
 
 if __name__ == "__main__":
