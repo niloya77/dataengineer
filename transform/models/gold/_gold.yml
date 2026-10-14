@@ -32,3 +32,12 @@ models:
     columns:
       - name: renewable_share_bucket
         data_tests: [unique, not_null]
+
+  - name: gold_price_by_month
+    description: Average price, renewable share and negative-price hours per calendar month (Berlin time).
+    columns:
+      - name: month
+        description: First day of the month.
+        data_tests: [unique, not_null]
+      - name: avg_renewable_share
+        data_tests: [not_null, {between: {arguments: {min_value: 0, max_value: 2}}}]
