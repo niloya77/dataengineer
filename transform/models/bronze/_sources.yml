@@ -1,0 +1,15 @@
+version: 2
+
+# Raw Parquet files written by the ingestion scripts. Declaring them as sources
+# lets dbt (and Dagster) see that the bronze models depend on ingestion.
+sources:
+  - name: raw
+    tables:
+      - name: smard
+        description: Weekly SMARD chunks written by ingestion/smard.py.
+        meta:
+          external_location: "read_parquet('{{ var('raw_dir') }}/smard/*/*.parquet', filename = true)"
+      - name: weather
+        description: Monthly Open-Meteo files written by ingestion/open_meteo.py.
+        meta:
+          external_location: "read_parquet('{{ var('raw_dir') }}/weather/*.parquet', filename = true)"

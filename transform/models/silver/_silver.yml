@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: silver_smard_hourly
+    description: >
+      Deduplicated SMARD data, one row per hour with every signal present.
+      Hours where any signal is still missing are dropped.
+    columns:
+      - name: timestamp_utc
+        description: Start of the hour in UTC.
+        data_tests: [unique, not_null]
+      - name: timestamp_local
+        description: Start of the hour in Europe/Berlin local time.
+      - name: price_eur_mwh
+        description: Day-ahead price for the DE-LU bidding zone.
+        data_tests:
+          - not_null
+          - between:
+              arguments: {min_value: -500, max_value: 4000}  # EU market price limits
+      - name: solar_mwh
+        data_tests: [not_null, {between: {arguments: {min_value: 0}}}]
+      - name: wind_onshore_mwh
+        data_tests: [not_null, {between: {arguments: {min_value: 0}}}]
+      - name: wind_offshore_mwh
+        data_tests: [not_null, {between: {arguments: {min_value: 0}}}]
+      - name: load_mwh
+        data_tests: [not_null, {between: {arguments: {min_value: 0}}}]
+
+  - name: silver_weather_hourly
+    description: Deduplicated hourly weather, one row per (hour, location).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [timestamp_utc, location]
+    columns:
+      - name: timestamp_utc
+        data_tests: [not_null]
+      - name: temperature_c
+        data_tests: [{between: {arguments: {min_value: -40, max_value: 50}}}]
+      - name: wind_speed_100m_ms
+        data_tests: [{between: {arguments: {min_value: 0, max_value: 80}}}]
+      - name: radiation_wm2
+        data_tests: [{between: {arguments: {min_value: 0, max_value: 1400}}}]
+      - name: cloud_cover_pct
+        data_tests: [{between: {arguments: {min_value: 0, max_value: 100}}}]

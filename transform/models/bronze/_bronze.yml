@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: bronze_smard
+    description: Raw SMARD rows read straight from data/raw/smard. No cleaning.
+    columns:
+      - name: timestamp_utc
+        data_tests: [not_null]
+      - name: signal
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [price, solar, wind_onshore, wind_offshore, load]
+
+  - name: bronze_weather
+    description: Raw Open-Meteo rows read straight from data/raw/weather. No cleaning.
+    columns:
+      - name: timestamp_utc
+        data_tests: [not_null]
+      - name: location
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [north_sea, schleswig_holstein, lower_saxony, bavaria, baden_wuerttemberg, ruhr]

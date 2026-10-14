@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: gold_hourly_market
+    description: Hourly fact table joining market data with regional weather.
+    columns:
+      - name: timestamp_utc
+        data_tests: [unique, not_null]
+      - name: renewable_share
+        description: (solar + wind onshore + wind offshore) / load. Can exceed 1 when Germany exports.
+        data_tests: [not_null, {between: {arguments: {min_value: 0, max_value: 2}}}]
+      - name: wind_speed_north_ms
+        description: Average 100 m wind speed over the northern wind locations.
+        data_tests: [not_null]
+      - name: radiation_south_wm2
+        description: Average solar radiation over the southern solar locations.
+        data_tests: [not_null]
+
+  - name: gold_price_by_weekday_hour
+    description: Average price and renewable share per weekday x hour. Rank 1 = cheapest slot.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [weekday, hour_local]
+    columns:
+      - name: weekday
+        description: ISO weekday, 1 = Monday, 7 = Sunday.
+        data_tests: [{between: {arguments: {min_value: 1, max_value: 7}}}]
+
+  - name: gold_price_by_renewable_share
+    description: Price statistics per 10% renewable-share bucket.
+    columns:
+      - name: renewable_share_bucket
+        data_tests: [unique, not_null]

@@ -1,0 +1,20 @@
+name: electricity
+version: "1.0.0"
+profile: electricity
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  raw_dir: "../data/raw"
+
+models:
+  electricity:
+    bronze:
+      +materialized: table
+    silver:
+      +materialized: table
+    gold:
+      +materialized: table
