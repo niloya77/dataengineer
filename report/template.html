@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strommarkt-Bericht</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-price: #2a78d6;
+    --series-renew: #1baf7a;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --critical: #d03b3b;
+    --skipped: #898781;
+    /* sequential blue, near-zero recedes toward the surface */
+    --q0: #cde2fb; --q1: #9ec5f4; --q2: #6da7ec; --q3: #5598e7; --q4: #3987e5;
+    --q5: #2a78d6; --q6: #256abf; --q7: #184f95; --q8: #0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-price: #3987e5;
+      --series-renew: #199e70;
+      --good-text: #0ca30c;
+      --q0: #104281; --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #2a78d6;
+      --q5: #3987e5; --q6: #6da7ec; --q7: #9ec5f4; --q8: #cde2fb;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-price: #3987e5;
+    --series-renew: #199e70;
+    --good-text: #0ca30c;
+    --q0: #104281; --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #2a78d6;
+    --q5: #3987e5; --q6: #6da7ec; --q7: #9ec5f4; --q8: #cde2fb;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 26px; line-height: 1.25; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--ink-2); }
+  h2 { font-size: 17px; margin: 0 0 2px; }
+  .sub { color: var(--ink-2); font-size: 14px; margin: 0 0 16px; }
+  section { margin-top: 28px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card + .card { margin-top: 16px; }
+  .tiles .card + .card { margin-top: 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile { padding: 16px; }
+  .tile .label { color: var(--ink-2); font-size: 13px; }
+  .tile .value { font-size: clamp(20px, 5vw, 26px); font-weight: 600; line-height: 1.2; margin-top: 4px; }
+  .tile .note { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .insights { margin: 0; padding-left: 20px; }
+  .insights li { margin: 6px 0; }
+
+  .chart { width: 100%; position: relative; }
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .panel-title { font-size: 13px; color: var(--ink-2); margin: 12px 0 4px; display: flex; align-items: center; gap: 6px; }
+  .key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; }
+  .key.price { background: var(--series-price); }
+  .key.renew { background: var(--series-renew); }
+
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg text.label { fill: var(--ink-2); font-weight: 600; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--axis); stroke-width: 1; }
+  .bar.price { fill: var(--series-price); }
+  .bar.renew { fill: var(--series-renew); }
+  .bar { transition: opacity .12s; }
+  .dim .bar:not(.active) { opacity: .45; }
+  .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .line.price { stroke: var(--series-price); }
+  .line.renew { stroke: var(--series-renew); }
+  .area.renew { fill: var(--series-renew); opacity: .10; }
+  .crosshair { stroke: var(--axis); stroke-width: 1; }
+  .dot { stroke: var(--surface); stroke-width: 2; }
+  .dot.price { fill: var(--series-price); }
+  .dot.renew { fill: var(--series-renew); }
+  .cell { stroke: var(--surface); stroke-width: 2; }
+  .cell.mark { stroke: var(--ink); stroke-width: 2; }
+  .hit { fill: transparent; cursor: crosshair; }
+  .q0 { fill: var(--q0); } .q1 { fill: var(--q1); } .q2 { fill: var(--q2); }
+  .q3 { fill: var(--q3); } .q4 { fill: var(--q4); } .q5 { fill: var(--q5); }
+  .q6 { fill: var(--q6); } .q7 { fill: var(--q7); } .q8 { fill: var(--q8); }
+
+  .legend-ramp { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend-ramp .ramp { display: flex; gap: 2px; }
+  .legend-ramp .ramp span { width: 22px; height: 10px; border-radius: 2px; }
+
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+    padding: 8px 10px; font-size: 13px; line-height: 1.45; white-space: nowrap;
+  }
+  #tip .t { color: var(--ink-2); font-size: 12px; margin-bottom: 2px; }
+  #tip .row { display: flex; align-items: center; gap: 6px; }
+  #tip b { font-variant-numeric: tabular-nums; }
+
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+  .table-wrap { overflow-x: auto; margin-top: 8px; }
+  table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+  th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; }
+
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: grid; grid-template-columns: 140px 1fr auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--grid); align-items: start; }
+  .steps li:last-child { border-bottom: 0; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .status .ic { width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .status.ok .ic { background: var(--good); }
+  .status.fail .ic { background: var(--critical); }
+  .status.skip .ic { background: var(--skipped); }
+  .step-name { font-weight: 600; }
+  .step-out { margin: 4px 0 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+  .duration { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) { .steps li { grid-template-columns: 1fr auto; } .steps li .status { grid-column: 1 / -1; } }
+
+  .banner { padding: 12px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); display: flex; gap: 10px; align-items: center; margin-top: 20px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Strommarkt Deutschland</h1>
+    <p id="period"></p>
+  </header>
+
+  <div id="banner"></div>
+
+  <section id="kpis" class="tiles"></section>
+
+  <section class="card">
+    <h2>Das Wichtigste</h2>
+    <ul class="insights" id="insights"></ul>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>Preis und Erneuerbaren-Anteil nach Tageszeit</h2>
+      <p class="sub">Durchschnitt der letzten 12 Monate, Berliner Zeit. Scheint mittags die Sonne, sinkt der Preis.</p>
+      <div class="panel-title"><span class="key price"></span>Durchschnittspreis (€/MWh)</div>
+      <div class="chart" id="chart-hour-price"></div>
+      <div class="panel-title"><span class="key renew"></span>Anteil von Wind und Sonne am Verbrauch</div>
+      <div class="chart" id="chart-hour-renew"></div>
+      <details><summary>Tabelle anzeigen</summary><div class="table-wrap" id="table-hour"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>Durchschnittspreis nach Wochentag und Uhrzeit</h2>
+      <p class="sub">Dunkel = teuer, hell = günstig. Die umrandeten Felder markieren den günstigsten und den teuersten Zeitpunkt.</p>
+      <div class="chart" id="chart-heatmap"></div>
+      <div class="legend-ramp" id="heatmap-legend"></div>
+      <details><summary>Tabelle anzeigen</summary><div class="table-wrap" id="table-heatmap"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>Wie reagiert der Preis auf einen höheren Erneuerbaren-Anteil?</h2>
+      <p class="sub">Stunden gruppiert nach dem Anteil des Verbrauchs, den Wind und Sonne decken. Über 100 % übersteigt die Erzeugung den Verbrauch.</p>
+      <div class="panel-title"><span class="key price"></span>Durchschnittspreis (€/MWh)</div>
+      <div class="chart" id="chart-buckets"></div>
+      <details><summary>Tabelle anzeigen</summary><div class="table-wrap" id="table-buckets"></div></details>
+    </div>
+
+    <div class="card">
+      <h2>Die letzten 14 Tage, stündlich</h2>
+      <p class="sub">Mit der Maus über das Diagramm fahren, um die Werte jeder Stunde zu sehen.</p>
+      <div class="panel-title"><span class="key price"></span>Preis (€/MWh)</div>
+      <div class="chart" id="chart-recent-price"></div>
+      <div class="panel-title"><span class="key renew"></span>Erneuerbaren-Anteil</div>
+      <div class="chart" id="chart-recent-renew"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Pipeline-Lauf</h2>
+    <p class="sub" id="run-sub"></p>
+    <ul class="steps" id="steps"></ul>
+  </section>
+
+  <footer id="footer"></footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ---------- formatting ----------
+const DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+const DAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const MONTHS = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sep.", "Okt.", "Nov.", "Dez."];
+const nf = d => new Intl.NumberFormat("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const num = (v, d = 0) => nf(d).format(v);
+const eur = (v, d = 1) => `${num(v, d)} €`;
+const pct = v => `${num(v * 100)} %`;
+const hh = h => `${String(h).padStart(2, "0")}:00`;
+const parseTs = s => {  // "2026-10-12 13:00:00" (Berlin local, naive)
+  const [d, t] = s.split(" ");
+  const [y, m, day] = d.split("-").map(Number);
+  return { y, m, day, h: Number(t.slice(0, 2)), key: s };
+};
+const dateLabel = p => `${p.day}. ${MONTHS[p.m - 1]} ${p.y}`;
+
+// ---------- svg helpers ----------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const node = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+function text(parent, x, y, str, attrs = {}) {
+  const t = el("text", { x, y, ...attrs }, parent);
+  t.textContent = str;
+  return t;
+}
+function niceStep(range, count) {
+  const raw = range / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+}
+function ticks(min, max, count = 4) {
+  const step = niceStep(max - min || 1, count);
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  const out = [];
+  for (let v = lo; v <= hi + step / 2; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+// A column with a 4px rounded data-end and a square baseline end.
+function columnPath(x, w, y0, y1) {
+  const h = Math.abs(y1 - y0);
+  const r = Math.min(4, w / 2, h);
+  if (y1 <= y0) {  // grows up
+    return `M${x},${y0}V${y1 + r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 + r}V${y0}Z`;
+  }
+  return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 - r}V${y0}Z`;
+}
+
+// ---------- tooltip ----------
+const tip = document.getElementById("tip");
+function showTip(html, cx, cy) {
+  tip.innerHTML = html;
+  tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  let x = cx + 14, y = cy - r.height - 10;
+  if (x + r.width > innerWidth - 8) x = cx - r.width - 14;
+  if (y < 8) y = cy + 16;
+  tip.style.left = `${Math.max(8, x)}px`;
+  tip.style.top = `${y}px`;
+}
+const hideTip = () => { tip.style.display = "none"; };
+const tipRow = (cls, label, value) =>
+  `<div class="row"><span class="key ${cls}"></span>${label} <b>${value}</b></div>`;
+
+// ---------- column chart ----------
+function columnChart(host, rows, opt) {
+  host.innerHTML = "";
+  const W = host.clientWidth, H = opt.height || 180;
+  const m = { l: 44, r: 6, t: 18, b: opt.xAxis === false ? 6 : 24 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const vals = rows.map(opt.value);
+  const yt = ticks(Math.min(0, ...vals), Math.max(0, ...vals), 4);
+  const y0 = yt[0], y1 = yt[yt.length - 1];
+  const y = v => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
+  const band = iw / rows.length;
+  const bw = Math.max(2, Math.min(24, band - 2, band * 0.72));
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": opt.aria }, host);
+
+  for (const t of yt) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: t === 0 ? "baseline" : "gridline" }, svg);
+    text(svg, m.l - 8, y(t) + 4, opt.yFmt(t), { "text-anchor": "end" });
+  }
+  const labelEvery = Math.max(1, Math.ceil((opt.xLabelWidth || 28) / band));
+  const bars = el("g", {}, svg);
+  rows.forEach((row, i) => {
+    const v = opt.value(row);
+    const x = m.l + i * band + (band - bw) / 2;
+    el("path", { d: columnPath(x, bw, y(0), y(v)), class: `bar ${opt.cls}` }, bars);
+    if (opt.xAxis !== false && i % labelEvery === 0) {
+      text(svg, m.l + i * band + band / 2, H - 6, opt.xLabel(row), { "text-anchor": "middle" });
+    }
+  });
+  // Selective direct labels: only the extremes
+  const annotate = opt.annotate ? opt.annotate(rows) : [];
+  for (const i of annotate) {
+    const v = opt.value(rows[i]);
+    const cx = m.l + i * band + band / 2;
+    const ty = v >= 0 ? y(v) - 6 : y(v) + 14;
+    text(svg, cx, ty, opt.labelFmt(v), { "text-anchor": "middle", class: "label" });
+  }
+  // Hover: a hit target spanning the whole band
+  rows.forEach((row, i) => {
+    const hit = el("rect", { x: m.l + i * band, y: m.t, width: band, height: ih, class: "hit" }, svg);
+    hit.addEventListener("pointermove", e => {
+      svg.classList.add("dim");
+      bars.children[i].classList.add("active");
+      showTip(opt.tip(row), e.clientX, e.clientY);
+    });
+    hit.addEventListener("pointerleave", () => {
+      svg.classList.remove("dim");
+      bars.children[i].classList.remove("active");
+      hideTip();
+    });
+  });
+}
+
+// ---------- heatmap ----------
+function heatmap(host, rows) {
+  host.innerHTML = "";
+  const W = host.clientWidth;
+  const m = { l: 34, r: 0, t: 4, b: 22 };
+  const cw = (W - m.l - m.r) / 24, ch = 26;
+  const H = m.t + ch * 7 + m.b;
+  const prices = rows.map(r => r.price);
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  const STEPS = 9;
+  const q = v => Math.min(STEPS - 1, Math.floor(((v - lo) / (hi - lo)) * STEPS));
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img",
+    "aria-label": "Heatmap des Durchschnittspreises nach Wochentag und Uhrzeit" }, host);
+  const maxRank = Math.max(...rows.map(r => r.rank));
+  for (const r of rows) {
+    const x = m.l + r.hour * cw, yy = m.t + (r.weekday - 1) * ch;
+    const marked = r.rank === 1 || r.rank === maxRank;
+    const cell = el("rect", { x, y: yy, width: cw, height: ch, rx: 3, class: `cell q${q(r.price)}${marked ? " mark" : ""}` }, svg);
+    cell.addEventListener("pointermove", e => showTip(
+      `<div class="t">${DAYS[r.weekday - 1]}, ${hh(r.hour)}</div>` +
+      tipRow("price", "Preis", eur(r.price)) +
+      tipRow("renew", "Erneuerbare", pct(r.renewable_share)) +
+      `<div class="t">Platz ${r.rank} von 168 (1 = am günstigsten)</div>`, e.clientX, e.clientY));
+    cell.addEventListener("pointerleave", hideTip);
+  }
+  // Draw the framed cells last so neighbours don't cover their outline
+  svg.querySelectorAll(".mark").forEach(n => svg.appendChild(n));
+  for (let d = 0; d < 7; d++) text(svg, m.l - 6, m.t + d * ch + ch / 2 + 4, DAYS_SHORT[d], { "text-anchor": "end" });
+  const every = cw < 18 ? 6 : 3;
+  for (let h = 0; h < 24; h += every) text(svg, m.l + h * cw + cw / 2, H - 6, hh(h).slice(0, 2), { "text-anchor": "middle" });
+
+  const legend = document.getElementById("heatmap-legend");
+  legend.innerHTML = `<span>${eur(lo, 0)}</span><span class="ramp">${
+    Array.from({ length: STEPS }, (_, i) => `<span style="background: var(--q${i})"></span>`).join("")
+  }</span><span>${eur(hi, 0)}</span>`;
+}
+
+// ---------- recent hourly line chart (one per measure, shared x and crosshair) ----------
+const crosshairs = [];
+function lineChart(host, rows, opt) {
+  host.innerHTML = "";
+  const W = host.clientWidth, H = opt.height || 160;
+  const m = { l: 44, r: 6, t: 10, b: opt.xAxis ? 24 : 6 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const vals = rows.map(opt.value);
+  const yt = ticks(Math.min(opt.floor ?? 0, ...vals), Math.max(...vals), 4);
+  const y0 = yt[0], y1 = yt[yt.length - 1];
+  const x = i => m.l + (i / (rows.length - 1)) * iw;
+  const y = v => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": opt.aria }, host);
+
+  for (const t of yt) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: t === 0 ? "baseline" : "gridline" }, svg);
+    text(svg, m.l - 8, y(t) + 4, opt.yFmt(t), { "text-anchor": "end" });
+  }
+  if (opt.xAxis) {
+    const midnights = rows.map((r, i) => [parseTs(r.ts), i]).filter(([p]) => p.h === 0);
+    const every = iw / midnights.length < 44 ? 2 : 1;
+    midnights.forEach(([p, i], k) => {
+      if (k % every === 0) text(svg, x(i), H - 6, `${p.day}. ${MONTHS[p.m - 1]}`, { "text-anchor": "middle" });
+    });
+  }
+  const pts = rows.map((r, i) => `${x(i).toFixed(1)},${y(opt.value(r)).toFixed(1)}`);
+  if (opt.area) el("path", { d: `M${x(0)},${y(Math.max(0, y0))}L${pts.join("L")}L${x(rows.length - 1)},${y(Math.max(0, y0))}Z`, class: `area ${opt.cls}` }, svg);
+  el("path", { d: `M${pts.join("L")}`, class: `line ${opt.cls}` }, svg);
+
+  // Endpoint label only
+  const last = rows.length - 1;
+  el("circle", { cx: x(last), cy: y(opt.value(rows[last])), r: 4, class: `dot ${opt.cls}` }, svg);
+
+  const cross = el("line", { y1: m.t, y2: m.t + ih, class: "crosshair", visibility: "hidden" }, svg);
+  const dot = el("circle", { r: 4.5, class: `dot ${opt.cls}`, visibility: "hidden" }, svg);
+  const self = {
+    show(i) {
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+      dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(opt.value(rows[i])));
+      cross.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+    },
+    hide() { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); },
+  };
+  crosshairs.push(self);
+  const hit = el("rect", { x: m.l, y: 0, width: iw, height: H, class: "hit" }, svg);
+  hit.addEventListener("pointermove", e => {
+    const box = svg.getBoundingClientRect();
+    const px = (e.clientX - box.left) * (W / box.width);
+    const i = Math.max(0, Math.min(last, Math.round(((px - m.l) / iw) * last)));
+    crosshairs.forEach(c => c.show(i));
+    const p = parseTs(rows[i].ts);
+    showTip(`<div class="t">${dateLabel(p)}, ${hh(p.h)}</div>` +
+      tipRow("price", "Preis", eur(rows[i].price)) +
+      tipRow("renew", "Erneuerbare", pct(rows[i].renewable_share)), e.clientX, e.clientY);
+  });
+  hit.addEventListener("pointerleave", () => { crosshairs.forEach(c => c.hide()); hideTip(); });
+}
+
+// ---------- tables ----------
+function table(host, head, body) {
+  host.innerHTML = `<table><thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${
+    body.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+// ---------- page ----------
+function renderHeader(mk) {
+  const s = mk.summary;
+  const a = parseTs(s.first_hour), b = parseTs(s.last_hour);
+  document.getElementById("period").textContent =
+    `${dateLabel(a)} – ${dateLabel(b)}, ${hh(b.h)} Uhr · ${num(s.hours)} Stunden · Daten von SMARD und Open-Meteo`;
+}
+
+function renderKpis(mk) {
+  const s = mk.summary;
+  const sorted = [...mk.weekday_hour].sort((p, q) => p.rank - q.rank);
+  const cheap = sorted[0], dear = sorted[sorted.length - 1];
+  const tiles = [
+    ["Durchschnittspreis", eur(s.avg_price), "letzte 12 Monate, €/MWh"],
+    ["Günstigster Zeitpunkt", `${DAYS[cheap.weekday - 1]}, ${hh(cheap.hour)}`, `im Schnitt ${eur(cheap.price)}`],
+    ["Teuerster Zeitpunkt", `${DAYS[dear.weekday - 1]}, ${hh(dear.hour)}`, `im Schnitt ${eur(dear.price)}`],
+    ["Stunden mit negativem Preis", num(s.negative_hours), `${pct(s.negative_hours / s.hours)} aller Stunden`],
+  ];
+  document.getElementById("kpis").innerHTML = tiles.map(([l, v, n]) =>
+    `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="note">${n}</div></div>`).join("");
+}
+
+function renderInsights(mk) {
+  const hours = mk.by_hour;
+  const cheap = hours.reduce((a, b) => (b.price < a.price ? b : a));
+  const dear = hours.reduce((a, b) => (b.price > a.price ? b : a));
+  const low = mk.buckets[0], high = mk.buckets[mk.buckets.length - 1];
+  const s = mk.summary;
+  const items = [
+    `Strom ist um <b>${hh(cheap.hour)}</b> am günstigsten (im Schnitt ${eur(cheap.price)}) und um <b>${hh(dear.hour)}</b> am teuersten (${eur(dear.price)}) – ein Unterschied um den Faktor <b>${num(dear.price / cheap.price, 1)}</b>.`,
+    `Mittags decken Wind und Sonne <b>${pct(cheap.renewable_share)}</b> des Verbrauchs, abends nur <b>${pct(dear.renewable_share)}</b>. Der Hauptgrund für die günstigen Mittagsstunden ist die Sonne.`,
+    `Liegt der Erneuerbaren-Anteil unter 10 %, kostet Strom im Schnitt <b>${eur(low.price)}</b>; übersteigt die Erzeugung den Verbrauch, sind es <b>${eur(high.price)}</b>.`,
+    `Die Korrelation zwischen Preis und Erneuerbaren-Anteil beträgt <b>${num(s.corr_price_renewable, 2)}</b>: Steigt der eine Wert, fällt der andere deutlich.`,
+  ];
+  document.getElementById("insights").innerHTML = items.map(i => `<li>${i}</li>`).join("");
+}
+
+function renderCharts(mk) {
+  crosshairs.length = 0;
+  const byHour = mk.by_hour;
+  const extremes = key => rows => {
+    const v = rows.map(key);
+    return [v.indexOf(Math.min(...v)), v.indexOf(Math.max(...v))];
+  };
+  columnChart(document.getElementById("chart-hour-price"), byHour, {
+    cls: "price", value: r => r.price, yFmt: v => num(v), labelFmt: v => eur(v, 0),
+    xLabel: r => hh(r.hour).slice(0, 2), xLabelWidth: 26, xAxis: false, height: 170,
+    annotate: extremes(r => r.price), aria: "Durchschnittspreis nach Uhrzeit",
+    tip: r => `<div class="t">${hh(r.hour)}</div>` + tipRow("price", "Preis", eur(r.price)) + tipRow("renew", "Erneuerbare", pct(r.renewable_share)),
+  });
+  columnChart(document.getElementById("chart-hour-renew"), byHour, {
+    cls: "renew", value: r => r.renewable_share, yFmt: v => pct(v), labelFmt: pct,
+    xLabel: r => hh(r.hour).slice(0, 2), xLabelWidth: 26, height: 150,
+    annotate: extremes(r => r.renewable_share), aria: "Erneuerbaren-Anteil nach Uhrzeit",
+    tip: r => `<div class="t">${hh(r.hour)}</div>` + tipRow("price", "Preis", eur(r.price)) + tipRow("renew", "Erneuerbare", pct(r.renewable_share)),
+  });
+  heatmap(document.getElementById("chart-heatmap"), mk.weekday_hour);
+
+  const bucketLabel = b => (b >= 1 ? "≥100 %" : `${num(b * 100)} %`);
+  columnChart(document.getElementById("chart-buckets"), mk.buckets, {
+    cls: "price", value: r => r.price, yFmt: v => num(v), labelFmt: v => eur(v, 0),
+    xLabel: r => bucketLabel(r.bucket), xLabelWidth: 44, height: 220,
+    annotate: rows => [0, rows.length - 1], aria: "Durchschnittspreis nach Erneuerbaren-Anteil",
+    tip: r => `<div class="t">Erneuerbaren-Anteil ${r.bucket >= 1 ? "100 % und mehr" : `${num(r.bucket * 100)}–${num(r.bucket * 100 + 10)} %`}</div>` +
+      tipRow("price", "Durchschnittspreis", eur(r.price)) +
+      `<div class="row">Stunden <b>${num(r.hours)}</b></div>` +
+      `<div class="row">Davon mit negativem Preis <b>${num(r.negative_price_hours)}</b></div>`,
+  });
+
+  lineChart(document.getElementById("chart-recent-price"), mk.recent, {
+    cls: "price", value: r => r.price, yFmt: v => num(v), height: 170, aria: "Stündlicher Preis der letzten 14 Tage",
+  });
+  lineChart(document.getElementById("chart-recent-renew"), mk.recent, {
+    cls: "renew", value: r => r.renewable_share, yFmt: pct, height: 140, xAxis: true, area: true,
+    aria: "Stündlicher Erneuerbaren-Anteil der letzten 14 Tage",
+  });
+}
+
+function renderTables(mk) {
+  table(document.getElementById("table-hour"), ["Uhrzeit", "Ø Preis (€/MWh)", "Erneuerbaren-Anteil"],
+    mk.by_hour.map(r => [hh(r.hour), num(r.price, 1), pct(r.renewable_share)]));
+  table(document.getElementById("table-heatmap"), ["Tag", ...Array.from({ length: 24 }, (_, h) => hh(h).slice(0, 2))],
+    DAYS.map((d, i) => [d, ...mk.weekday_hour.filter(r => r.weekday === i + 1).map(r => num(r.price, 0))]));
+  table(document.getElementById("table-buckets"), ["Erneuerbaren-Anteil", "Stunden", "Ø Preis (€/MWh)", "Stunden mit negativem Preis"],
+    mk.buckets.map(r => [r.bucket >= 1 ? "≥100 %" : `${num(r.bucket * 100)}–${num(r.bucket * 100 + 10)} %`, num(r.hours), num(r.price, 1), num(r.negative_price_hours)]));
+}
+
+function renderRun() {
+  const STATUS = {
+    ok: ["ok", "✓", "Erfolgreich"],
+    fail: ["fail", "✕", "Fehler"],
+    skip: ["skip", "–", "Übersprungen"],
+  };
+  const steps = [...DATA.steps];
+  const dbt = DATA.dbt;
+  document.getElementById("steps").innerHTML = steps.map(s => {
+    const [cls, icon, label] = STATUS[s.status];
+    let out = s.output || "";
+    if (s.name === "dbt build" && dbt && s.status !== "skip") {
+      out = `${dbt.models_ok}/${dbt.models_total} Tabellen erstellt · ${dbt.tests_ok}/${dbt.tests_total} Tests bestanden` +
+        dbt.problems.map(p => `\n${p.status.toUpperCase()}: ${p.name}${p.message ? ` (${p.message})` : ""}`).join("");
+    }
+    return `<li>
+      <span class="status ${cls}"><span class="ic" aria-hidden="true">${icon}</span>${label}</span>
+      <div><div class="step-name">${s.name}</div>${out ? `<pre class="step-out">${out.replace(/</g, "&lt;")}</pre>` : ""}</div>
+      <span class="duration">${s.seconds != null ? `${num(s.seconds, 1)} s` : ""}</span>
+    </li>`;
+  }).join("");
+  const g = parseTs(DATA.generated_at.slice(0, 19));
+  document.getElementById("run-sub").textContent =
+    DATA.run_by === "dagster"
+      ? `Von Dagster erstellt am ${dateLabel(g)} um ${String(g.h).padStart(2, "0")}:${DATA.generated_at.slice(14, 16)} Uhr. Den Status der einzelnen Schritte und Tests zeigt die Dagster-Oberfläche.`
+      : steps.length
+        ? `Ausgeführt am ${dateLabel(g)} um ${String(g.h).padStart(2, "0")}:${DATA.generated_at.slice(14, 16)} Uhr.`
+        : "Bericht aus vorhandenen Daten erstellt, ohne die Pipeline auszuführen.";
+
+  const failed = steps.some(s => s.status === "fail") || (dbt && dbt.problems.length);
+  const banner = document.getElementById("banner");
+  if (failed) {
+    banner.innerHTML = `<div class="banner"><span class="status fail"><span class="ic" aria-hidden="true">✕</span>Fehler</span>
+      <span>Ein Schritt der Pipeline ist fehlgeschlagen. Die Zahlen stammen möglicherweise aus dem letzten erfolgreichen Lauf. Details ganz unten.</span></div>`;
+  }
+}
+
+function render() {
+  renderRun();
+  const mk = DATA.market;
+  document.getElementById("footer").textContent =
+    "Quellen: Marktdaten von SMARD (Bundesnetzagentur), Wetterdaten von Open-Meteo. Preise: Day-Ahead, Gebotszone DE-LU, €/MWh.";
+  if (!mk) return;
+  renderHeader(mk);
+  renderKpis(mk);
+  renderInsights(mk);
+  renderCharts(mk);
+  renderTables(mk);
+}
+
+render();
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => DATA.market && renderCharts(DATA.market), 120);
+});
+</script>
+</body>
+</html>
